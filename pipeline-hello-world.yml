@@ -1,0 +1,106 @@
+apiVersion: tekton.dev/v1alpha1
+kind: PipelineResource
+metadata:
+  name: tekton-hello-world
+spec:
+  type: git
+  params:
+  - name: url
+    value: https://github.com/michaelsauter/tekton-hello-world
+---
+apiVersion: tekton.dev/v1alpha1
+kind: Pipeline
+metadata:
+  name: tekton-hello-world
+spec:
+  resources:
+  - name: source-repo
+    type: git
+  tasks:
+  - name: create-html
+    taskRef:
+      name: create-html
+    resources:
+      inputs:
+      - name: workspace
+        resource: source-repo
+      outputs:
+      - name: workspace
+        resource: source-repo
+  - name: build-image
+    taskRef:
+      name: openshift-client-workspace
+    resources:
+      inputs:
+      - name: workspace
+        resource: source-repo
+        from: ["create-html"]
+    params:
+    - name: ARGS
+      value: "start-build -n pipelines-tutorial tekton-hello-world --from-dir workspace/docker --follow"
+  - name: deploy
+    taskRef:
+      name: openshift-client
+    runAfter:
+      - build-image
+    params:
+      - name: ARGS
+        value: "rollout latest tekton-hello-world"
+---
+apiVersion: tekton.dev/v1alpha1
+kind: Task
+metadata:
+  name: create-html
+spec:
+  inputs:
+    resources:
+    - name: workspace
+      type: git
+  outputs:
+    resources:
+    - name: workspace
+      type: git
+  steps:
+  - name: write-index-html
+    image: ubuntu
+    command: ['/bin/bash']
+    args:
+      - "-c"
+      - "mkdir -p workspace/docker/dist && echo hello world > workspace/docker/dist/index.html && ls -la workspace/docker/dist"
+---
+apiVersion: tekton.dev/v1alpha1
+kind: Task
+metadata:
+  name: openshift-client
+spec:
+  inputs:
+    params:
+      - name: ARGS
+        description: The OpenShift CLI arguments to run
+        default: help
+  steps:
+    - name: oc
+      image: quay.io/openshift-pipeline/openshift-cli:latest
+      command: ["/usr/local/bin/oc"]
+      args:
+        - "${inputs.params.ARGS}"
+---
+apiVersion: tekton.dev/v1alpha1
+kind: Task
+metadata:
+  name: openshift-client-workspace
+spec:
+  inputs:
+    resources:
+      - name: workspace
+        type: git
+    params:
+      - name: ARGS
+        description: The OpenShift CLI arguments to run
+        default: help
+  steps:
+    - name: oc
+      image: quay.io/openshift-pipeline/openshift-cli:latest
+      command: ["/usr/local/bin/oc"]
+      args:
+        - "${inputs.params.ARGS}"
